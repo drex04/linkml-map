@@ -13,7 +13,8 @@ mappings:
           - function: {{ po.function.name }}
             parameters:
 {% for param in po.function.parameters %}              - [{{ param.name }}, {{ param.value }}]
-{% endfor %}{% elif po.get('mapping') %}      - p: {{ po.predicate }}
+{% endfor %}{% if po.function.get('datatype') %}            datatype: {{ po.function.datatype }}
+{% endif %}{% elif po.get('mapping') %}      - p: {{ po.predicate }}
         o:
           - mapping: {{ po.mapping }}
 {% elif po.get('datatype') %}      - p: {{ po.predicate }}

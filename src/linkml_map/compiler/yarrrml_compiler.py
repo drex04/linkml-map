@@ -29,13 +29,19 @@ from linkml_map.datamodel.transformer_model import (
 
 YARRRML_TEMPLATE_DIR = str(Path(__file__).parent / "templates")
 
-# Minimal linear-conversion table. Extend as needed.
-LINEAR_GREL_CONVERSIONS: dict[tuple[str, str], str] = {
-    ("meter", "foot"): "value.toNumber() * 3.28084",
-    ("foot", "meter"): "value.toNumber() * 0.3048",
-    ("kilogram", "pound"): "value.toNumber() * 2.20462",
-    ("celsius", "fahrenheit"): "value.toNumber() * 1.8 + 32",
-    ("kelvin", "celsius"): "value.toNumber() - 273.15",
+# Linear-conversion function IDs — stable IRIs under the rosetta UDF namespace.
+# The compiler emits unit_conversion as a FnML function reference by IRI. The
+# downstream engine (morph-kgc) must register each IRI as a user-defined
+# function (UDF) at materialize time. rosetta-cli's rml_runner writes a Python
+# UDF file to work_dir and passes `udfs=<path>` in morph-kgc's INI config;
+# see rosetta/core/rml_runner.py::_write_udf_file.
+_ROSETTA_UDF_NS = "https://rosetta.interop/udf/"
+LINEAR_CONVERSION_FUN_IDS: dict[tuple[str, str], str] = {
+    ("meter", "foot"): _ROSETTA_UDF_NS + "meter_to_foot",
+    ("foot", "meter"): _ROSETTA_UDF_NS + "foot_to_meter",
+    ("kilogram", "pound"): _ROSETTA_UDF_NS + "kilogram_to_pound",
+    ("celsius", "fahrenheit"): _ROSETTA_UDF_NS + "celsius_to_fahrenheit",
+    ("kelvin", "celsius"): _ROSETTA_UDF_NS + "kelvin_to_celsius",
 }
 
 _COMPOSITE_SLOT_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
@@ -121,16 +127,19 @@ class YarrrmlCompiler(Compiler):
 
         raise ValueError(f"No identifier slot found for class {class_name}")
 
-    def _grel_for_linear(self, source_unit: str, target_unit: str) -> str:
-        """Return GREL expression for linear unit conversion.
+    def _fun_id_for_linear(self, source_unit: str, target_unit: str) -> str:
+        """Return stable rosetta UDF IRI for a linear unit-conversion pair.
 
-        Raises ValueError for unknown pairs.
+        The IRI references a user-defined function the downstream engine
+        (morph-kgc) must have registered. rosetta-cli's rml_runner writes a
+        Python UDF file at materialize time whose @udf-decorated functions
+        use matching fun_ids.
         """
         key = (source_unit, target_unit)
-        if key in LINEAR_GREL_CONVERSIONS:
-            return LINEAR_GREL_CONVERSIONS[key]
+        if key in LINEAR_CONVERSION_FUN_IDS:
+            return LINEAR_CONVERSION_FUN_IDS[key]
         raise ValueError(
-            f"No linear GREL conversion known for {source_unit} → {target_unit}"
+            f"No linear conversion function registered for {source_unit} → {target_unit}"
         )
 
     def _sources_entry(self, fmt: str) -> list[str]:
@@ -298,22 +307,29 @@ class YarrrmlCompiler(Compiler):
                     src_unit = uc.source_unit or ""
                     tgt_unit = uc.target_unit or ""
                     try:
-                        grel_expr = self._grel_for_linear(src_unit, tgt_unit)
+                        fun_id = self._fun_id_for_linear(src_unit, tgt_unit)
                         po = {
                             "predicate": predicate,
                             "reference": reference,
                             "function": {
-                                "name": "grel:value",
+                                # morph-kgc resolves this as a full IRI when
+                                # it contains "://" — no angle-bracket wrap.
+                                "name": fun_id,
                                 "parameters": [
-                                    {"name": "value", "value": reference}
+                                    {
+                                        "name": "grel:valueParameter",
+                                        "value": reference,
+                                    }
                                 ],
-                                "grel": grel_expr,
                             },
                         }
+                        if slot_deriv.range is not None:
+                            po["function"]["datatype"] = f"xsd:{slot_deriv.range}"
                     except ValueError:
                         sys.stderr.write(
-                            f"[YarrrmlCompiler] WARNING: no GREL conversion for "
-                            f"{src_unit!r} → {tgt_unit!r}; emitting plain reference\n"
+                            f"[YarrrmlCompiler] WARNING: no conversion function "
+                            f"registered for {src_unit!r} → {tgt_unit!r}; "
+                            f"emitting plain reference\n"
                         )
 
                 if slot_deriv.range is not None and "function" not in po:
