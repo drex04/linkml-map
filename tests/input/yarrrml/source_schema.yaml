@@ -1,0 +1,37 @@
+id: https://example.org/nor-radar
+name: nor_radar
+default_prefix: nor_radar
+prefixes:
+  linkml: https://w3id.org/linkml/
+  nor_radar: https://example.org/nor-radar/
+
+imports:
+  - linkml:types
+
+classes:
+  Track:
+    slots:
+      - id
+      - latitude
+      - longitude
+      - speed
+
+slots:
+  id:
+    identifier: true
+    range: string
+  latitude:
+    range: float
+    annotations:
+      rosetta_csv_column: latitude
+      rosetta_jsonpath: "$.latitude"
+  longitude:
+    range: float
+    annotations:
+      rosetta_csv_column: longitude
+      rosetta_jsonpath: "$.longitude"
+  speed:
+    range: float
+    annotations:
+      rosetta_csv_column: speed_knots
+      rosetta_jsonpath: "$.speed_knots"

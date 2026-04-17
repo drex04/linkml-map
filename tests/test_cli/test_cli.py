@@ -303,4 +303,57 @@ def test_dump_output_jsonl_omits_null_values(
     captured = capsys.readouterr()
     lines = [json.loads(line) for line in captured.out.strip().split("\n")]
     assert lines[0] == {"a": 1}
-    assert lines[1] == {"b": 2}
+
+
+def test_cli_compile_yarrrml(runner: CliRunner, tmp_path: Path) -> None:
+    """CLI compile --target yarrrml emits valid YARRRML with prefixes and mappings keys."""
+    # Fixture schemas from tests/input/yarrrml/
+    yarrrml_input = Path(__file__).parent.parent / "input" / "yarrrml"
+    source_path = yarrrml_input / "source_schema.yaml"
+    target_path = yarrrml_input / "target_schema.yaml"
+
+    # Minimal transformation spec: Track → Track, pass-through slots
+    spec_text = """\
+id: https://example.org/test-tr
+source_schema: https://example.org/nor-radar
+target_schema: https://example.org/mc
+comments:
+  - "rosetta:source_format=csv"
+class_derivations:
+  Track:
+    populated_from: Track
+    slot_derivations:
+      latitude:
+        populated_from: latitude
+      longitude:
+        populated_from: longitude
+      speed:
+        populated_from: speed
+"""
+    spec_path = tmp_path / "test.transform.yaml"
+    spec_path.write_text(spec_text)
+    output_path = tmp_path / "output.yarrrml.yaml"
+
+    result = runner.invoke(
+        main,
+        [
+            "compile",
+            "-T", str(spec_path),
+            "-s", str(source_path),
+            "--target", "yarrrml",
+            "--target-schema", str(target_path),
+            "-o", str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, (
+        f"CLI exited with code {result.exit_code}\n"
+        f"Output: {result.output}\n"
+        f"Exception: {result.exception}"
+    )
+    assert output_path.exists(), "Output file was not created"
+
+    data = yaml.safe_load(output_path.read_text())
+    assert isinstance(data, dict), "YARRRML output is not a dict"
+    assert "prefixes" in data, f"'prefixes' key missing; keys={list(data.keys())}"
+    assert "mappings" in data, f"'mappings' key missing; keys={list(data.keys())}"

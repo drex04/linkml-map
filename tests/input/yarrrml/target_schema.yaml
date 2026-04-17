@@ -1,0 +1,28 @@
+id: https://example.org/mc
+name: mc
+default_prefix: mc
+prefixes:
+  linkml: https://w3id.org/linkml/
+  mc: https://example.org/mc/
+
+imports:
+  - linkml:types
+
+classes:
+  Track:
+    class_uri: mc:Track
+    slots:
+      - latitude
+      - longitude
+      - speed
+
+slots:
+  latitude:
+    slot_uri: mc:latitude
+    range: float
+  longitude:
+    slot_uri: mc:longitude
+    range: float
+  speed:
+    slot_uri: mc:speed
+    range: float

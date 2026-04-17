@@ -15,6 +15,7 @@ from more_itertools import chunked
 
 from linkml_map.compiler.markdown_compiler import MarkdownCompiler
 from linkml_map.compiler.python_compiler import PythonCompiler
+from linkml_map.compiler.yarrrml_compiler import YarrrmlCompiler
 from linkml_map.inference.inverter import TransformationSpecificationInverter
 from linkml_map.inference.schema_mapper import SchemaMapper
 from linkml_map.loaders import DataLoader
@@ -337,11 +338,18 @@ def _map_data_streaming(
 @transformer_specification_option
 @schema_option
 @click.option("--target", default="python", show_default=True, help="Target representation.")
+@click.option(
+    "--target-schema",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    help="Path to target LinkML schema. Overrides spec.target_schema when present. Required for yarrrml.",
+)
 def compile(
     schema: str,
     transformer_specification: str,
     target: str,
     output: str | None,
+    target_schema: str | None,
     **kwargs: Any,
 ) -> None:
     """
@@ -358,6 +366,12 @@ def compile(
         compiler = PythonCompiler(**compiler_args)
     elif target == "markdown":
         compiler = MarkdownCompiler(**compiler_args)
+    elif target == "yarrrml":
+        target_sv = SchemaView(target_schema) if target_schema else None
+        compiler = YarrrmlCompiler(
+            source_schemaview=sv,
+            target_schemaview=target_sv,
+        )
     else:
         msg = f"Compiler {target} not implemented"
         raise NotImplementedError(msg)

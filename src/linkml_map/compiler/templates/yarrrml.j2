@@ -1,0 +1,24 @@
+prefixes:
+{% for prefix, uri in prefixes.items() %}  {{ prefix }}: "{{ uri }}"
+{% endfor %}
+mappings:
+{% for m in mappings %}  {{ m.name }}:
+    sources:
+{% for src in m.sources %}      - [{{ src }}]
+{% endfor %}    s: {{ m.subject }}
+    po:
+{% if m.get('rdf_type') %}      - [a, {{ m.rdf_type }}]
+{% endif %}{% for po in m.predicateobjects %}{% if po.get('function') %}      - p: {{ po.predicate }}
+        o:
+          - function: {{ po.function.name }}
+            parameters:
+{% for param in po.function.parameters %}              - [{{ param.name }}, {{ param.value }}]
+{% endfor %}{% elif po.get('mapping') %}      - p: {{ po.predicate }}
+        o:
+          - mapping: {{ po.mapping }}
+{% elif po.get('datatype') %}      - p: {{ po.predicate }}
+        o:
+          - value: {{ po.reference }}
+            datatype: {{ po.datatype }}
+{% else %}      - [{{ po.predicate }}, {{ po.reference }}]
+{% endif %}{% endfor %}{% endfor %}
