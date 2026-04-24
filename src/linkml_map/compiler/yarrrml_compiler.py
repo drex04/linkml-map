@@ -24,24 +24,24 @@ from linkml_runtime import SchemaView
 from linkml_map.compiler.compiler import CompiledSpecification, Compiler
 from linkml_map.datamodel.transformer_model import (
     ClassDerivation,
+    FunctionCallConfiguration,
+    SlotDerivation,
     TransformationSpecification,
+    UnitConversionConfiguration,
 )
 
 YARRRML_TEMPLATE_DIR = str(Path(__file__).parent / "templates")
 
-# Linear-conversion function IDs — stable IRIs under the rosetta UDF namespace.
-# The compiler emits unit_conversion as a FnML function reference by IRI. The
-# downstream engine (morph-kgc) must register each IRI as a user-defined
-# function (UDF) at materialize time. rosetta-cli's rml_runner writes a Python
-# UDF file to work_dir and passes `udfs=<path>` in morph-kgc's INI config;
-# see rosetta/core/rml_runner.py::_write_udf_file.
-_ROSETTA_UDF_NS = "https://rosetta.interop/udf/"
-LINEAR_CONVERSION_FUN_IDS: dict[tuple[str, str], str] = {
-    ("meter", "foot"): _ROSETTA_UDF_NS + "meter_to_foot",
-    ("foot", "meter"): _ROSETTA_UDF_NS + "foot_to_meter",
-    ("kilogram", "pound"): _ROSETTA_UDF_NS + "kilogram_to_pound",
-    ("celsius", "fahrenheit"): _ROSETTA_UDF_NS + "celsius_to_fahrenheit",
-    ("kelvin", "celsius"): _ROSETTA_UDF_NS + "kelvin_to_celsius",
+_RFNS = "https://rosetta.interop/functions#"
+_GREL_VALUE_PARAM = "http://users.ugent.be/~bjdmeest/function/grel.ttl#valueParameter"
+
+_UNIT_PAIR_TO_FNO: dict[tuple[str, str], str] = {
+    ("meter", "foot"): f"{_RFNS}meterToFoot",
+    ("foot", "meter"): f"{_RFNS}footToMeter",
+    ("kilogram", "pound"): f"{_RFNS}kgToPound",
+    ("pound", "kilogram"): f"{_RFNS}poundToKg",
+    ("celsius", "fahrenheit"): f"{_RFNS}celsiusToFahrenheit",
+    ("kelvin", "celsius"): f"{_RFNS}kelvinToCelsius",
 }
 
 _COMPOSITE_SLOT_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
@@ -143,19 +143,19 @@ class YarrrmlCompiler(Compiler):
 
         raise ValueError(f"No identifier slot found for class {class_name}")
 
-    def _fun_id_for_linear(self, source_unit: str, target_unit: str) -> str:
-        """Return stable rosetta UDF IRI for a linear unit-conversion pair.
-
-        The IRI references a user-defined function the downstream engine
-        (morph-kgc) must have registered. rosetta-cli's rml_runner writes a
-        Python UDF file at materialize time whose @udf-decorated functions
-        use matching fun_ids.
-        """
-        key = (source_unit, target_unit)
-        if key in LINEAR_CONVERSION_FUN_IDS:
-            return LINEAR_CONVERSION_FUN_IDS[key]
-        raise ValueError(
-            f"No linear conversion function registered for {source_unit} → {target_unit}"
+    @staticmethod
+    def _bridge_unit_conversion(
+        uc: UnitConversionConfiguration,
+    ) -> FunctionCallConfiguration | None:
+        """Convert legacy UnitConversionConfiguration to FunctionCallConfiguration."""
+        src = uc.source_unit or ""
+        tgt = uc.target_unit or ""
+        fun_id = _UNIT_PAIR_TO_FNO.get((src, tgt))
+        if fun_id is None:
+            return None
+        return FunctionCallConfiguration(
+            function_id=fun_id,
+            parameter_predicate=_GREL_VALUE_PARAM,
         )
 
     def _sources_entry(self, fmt: str) -> list[str]:
@@ -320,38 +320,31 @@ class YarrrmlCompiler(Compiler):
 
                 xsd_type = _resolve_xsd_datatype(slot_deriv.name, target_view)
 
-                if slot_deriv.unit_conversion is not None:
-                    uc = slot_deriv.unit_conversion
-                    src_unit = uc.source_unit or ""
-                    tgt_unit = uc.target_unit or ""
-                    try:
-                        fun_id = self._fun_id_for_linear(src_unit, tgt_unit)
-                        po = {
-                            "predicate": predicate,
-                            "reference": reference,
-                            "function": {
-                                # morph-kgc resolves this as a full IRI when
-                                # it contains "://" — no angle-bracket wrap.
-                                "name": fun_id,
-                                "parameters": [
-                                    {
-                                        "name": "grel:valueParameter",
-                                        "value": reference,
-                                    }
-                                ],
-                            },
-                        }
-                        if xsd_type is not None:
-                            po["function"]["datatype"] = xsd_type
-                    except ValueError:
-                        sys.stderr.write(
-                            f"[YarrrmlCompiler] WARNING: no conversion function "
-                            f"registered for {src_unit!r} → {tgt_unit!r}; "
-                            f"emitting plain reference\n"
-                        )
+                # Resolve function_call: direct or via deprecation bridge
+                fc = slot_deriv.function_call
+                if fc is None and slot_deriv.unit_conversion is not None:
+                    fc = self._bridge_unit_conversion(slot_deriv.unit_conversion)
 
-                if xsd_type is not None and "function" not in po:
-                    po["datatype"] = xsd_type
+                if fc is not None:
+                    po = {
+                        "predicate": predicate,
+                        "reference": reference,
+                        "function": {
+                            "name": fc.function_id,
+                            "parameters": [
+                                {
+                                    "name": fc.parameter_predicate,
+                                    "value": reference,
+                                }
+                            ],
+                        },
+                    }
+                    dt = fc.output_datatype or xsd_type
+                    if dt is not None:
+                        po["function"]["datatype"] = dt
+                else:
+                    if xsd_type is not None:
+                        po["datatype"] = xsd_type
 
                 predicateobjects.append(po)
 

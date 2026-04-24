@@ -9,6 +9,7 @@ from linkml_runtime import SchemaView
 from linkml_map.compiler.yarrrml_compiler import _COMPOSITE_SLOT_RE, YarrrmlCompiler
 from linkml_map.datamodel.transformer_model import (
     ClassDerivation,
+    FunctionCallConfiguration,
     KeyVal,
     SlotDerivation,
     TransformationSpecification,
@@ -135,7 +136,7 @@ def test_compile_datatype_emitted_when_range_set(
 # ---------------------------------------------------------------------------
 
 
-def test_compile_unit_conversion_emits_grel(
+def test_compile_unit_conversion_emits_fno_function(
     compiler_csv: YarrrmlCompiler,
 ) -> None:
     spec = _make_spec(
@@ -151,13 +152,13 @@ def test_compile_unit_conversion_emits_grel(
         },
     )
     serialization = compiler_csv.compile(spec).serialization
-    # Template emits the function block with name + parameters
-    assert "function: grel:value" in serialization
-    # The GREL expression is stored on the function dict — confirm it appears
-    # in the compiled output via the po block (the template emits the function name
-    # and parameters; the grel key is present in the mapping context dict)
-    assert "grel:value" in serialization
-    # The parameter binding for the meter→foot conversion should reference the source col
+    # Template emits the FnO function IRI (full IRI, not old UDF namespace)
+    assert "https://rosetta.interop/functions#meterToFoot" in serialization
+    # Parameter predicate is the full GREL value parameter IRI
+    assert "http://users.ugent.be/~bjdmeest/function/grel.ttl#valueParameter" in serialization
+    # Old CURIE form must NOT appear
+    assert "grel:value" not in serialization
+    # The parameter binding should reference the source column annotation
     assert "$(speed_knots)" in serialization
 
 
@@ -404,3 +405,123 @@ def test_compile_composition_expr_parser() -> None:
     )
     with pytest.raises(ValueError, match="no source slots"):
         compiler.compile(spec)
+
+
+# ---------------------------------------------------------------------------
+# Test 14 — function_call emits full YARRRML function block
+# ---------------------------------------------------------------------------
+
+
+def test_function_call_emits_yarrrml_function_block(
+    compiler_csv: YarrrmlCompiler,
+) -> None:
+    spec = _make_spec(
+        "csv",
+        slot_derivations={
+            "speed": SlotDerivation(
+                name="speed",
+                populated_from="speed",
+                function_call=FunctionCallConfiguration(
+                    function_id="https://example.org/fn#myFunc",
+                    parameter_predicate="https://example.org/fn#value",
+                    output_datatype="xsd:integer",
+                ),
+            ),
+        },
+    )
+    serialization = compiler_csv.compile(spec).serialization
+    assert "https://example.org/fn#myFunc" in serialization
+    assert "https://example.org/fn#value" in serialization
+    assert "xsd:integer" in serialization
+    assert "$(speed_knots)" in serialization
+
+
+# ---------------------------------------------------------------------------
+# Test 15 — unit_conversion bridges to FnO IRI via _bridge_unit_conversion
+# ---------------------------------------------------------------------------
+
+
+def test_unit_conversion_bridge_to_function_call(
+    compiler_csv: YarrrmlCompiler,
+) -> None:
+    spec = _make_spec(
+        "csv",
+        slot_derivations={
+            "speed": SlotDerivation(
+                name="speed",
+                populated_from="speed",
+                unit_conversion=UnitConversionConfiguration(
+                    source_unit="meter", target_unit="foot"
+                ),
+            ),
+        },
+    )
+    serialization = compiler_csv.compile(spec).serialization
+    # Must use new FnO namespace, not old udf/ namespace
+    assert "https://rosetta.interop/functions#meterToFoot" in serialization
+    assert "https://rosetta.interop/udf/" not in serialization
+
+
+# ---------------------------------------------------------------------------
+# Test 16 — function_call takes priority over unit_conversion
+# ---------------------------------------------------------------------------
+
+
+def test_function_call_takes_priority_over_unit_conversion(
+    compiler_csv: YarrrmlCompiler,
+) -> None:
+    spec = _make_spec(
+        "csv",
+        slot_derivations={
+            "speed": SlotDerivation(
+                name="speed",
+                populated_from="speed",
+                function_call=FunctionCallConfiguration(
+                    function_id="https://example.org/fn#explicitFunc",
+                    parameter_predicate="https://example.org/fn#inputParam",
+                ),
+                unit_conversion=UnitConversionConfiguration(
+                    source_unit="meter", target_unit="foot"
+                ),
+            ),
+        },
+    )
+    serialization = compiler_csv.compile(spec).serialization
+    # function_call's IRI wins
+    assert "https://example.org/fn#explicitFunc" in serialization
+    # Bridge's IRI must NOT appear
+    assert "https://rosetta.interop/functions#meterToFoot" not in serialization
+
+
+# ---------------------------------------------------------------------------
+# Test 17 — unknown unit pair emits plain reference (no function block)
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_unit_pair_emits_plain_reference(
+    compiler_csv: YarrrmlCompiler,
+) -> None:
+    spec = _make_spec(
+        "csv",
+        slot_derivations={
+            "speed": SlotDerivation(
+                name="speed",
+                populated_from="speed",
+                unit_conversion=UnitConversionConfiguration(
+                    source_unit="parsec", target_unit="furlong"
+                ),
+            ),
+        },
+    )
+    doc = yaml.safe_load(compiler_csv.compile(spec).serialization)
+    # Navigate to the speed po entry in the Track mapping
+    track_pos = doc["mappings"]["Track"]["po"]
+    # Find the speed po entry — it should have no "function" key
+    speed_entries = [
+        entry for entry in track_pos
+        if isinstance(entry, dict) and "o" in entry
+        and isinstance(entry["o"], dict) and "function" in entry["o"]
+    ]
+    assert len(speed_entries) == 0, (
+        f"Expected no function block for unknown unit pair, got: {speed_entries}"
+    )

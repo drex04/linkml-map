@@ -360,6 +360,7 @@ class SlotDerivation(ElementDerivation):
     value: Optional[Any] = Field(default=None, description="""A constant value to assign to the target slot.""", json_schema_extra = { "linkml_meta": {'domain_of': ['SlotDerivation', 'KeyVal']} })
     range: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SlotDerivation'], 'slot_uri': 'linkml:range'} })
     unit_conversion: Optional[UnitConversionConfiguration] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['SlotDerivation']} })
+    function_call: Optional[FunctionCallConfiguration] = Field(default=None, description="""Generic FnO function to apply to this slot's value. The compiler emits a YARRRML function block referencing function_id with the slot's source reference bound to parameter_predicate. Supersedes unit_conversion.""", json_schema_extra = { "linkml_meta": {'domain_of': ['SlotDerivation']} })
     inverse_of: Optional[Inverse] = Field(default=None, description="""Used to specify a class-slot tuple that is the inverse of the derived/target slot. This is used primarily for mapping to relational databases or formalisms that do not allow multiple values. The class representing the repeated element has a foreign key slot inserted in that 'back references' the original multivalued slot.""", json_schema_extra = { "linkml_meta": {'domain_of': ['SlotDerivation']} })
     hide: Optional[bool] = Field(default=None, description="""True if this is suppressed""", json_schema_extra = { "linkml_meta": {'domain_of': ['SlotDerivation',
                        'EnumDerivation',
@@ -509,6 +510,17 @@ class UnitConversionConfiguration(ConfiguredBaseModel):
     target_unit_slot: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitConversionConfiguration']} })
     target_magnitude_slot: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['UnitConversionConfiguration']} })
     none_if_non_numeric: Optional[bool] = Field(default=None, description="""If true, return None when the source value cannot be coerced to a numeric type instead of raising an error. This is an explicit opt-in for columns that contain non-numeric coded values (e.g. 'A', 'M') mixed with numeric data.""", json_schema_extra = { "linkml_meta": {'domain_of': ['UnitConversionConfiguration']} })
+
+
+class FunctionCallConfiguration(ConfiguredBaseModel):
+    """
+    Configuration for applying an FnO function to a slot's value during YARRRML compilation. The compiler emits a YARRRML function block with the given function IRI and parameter binding. Engine-agnostic — works with morph-kgc (Python) and RMLMapper (Java).
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://w3id.org/linkml/transformer'})
+
+    function_id: str = Field(default=..., description="""FnO function IRI (full URI or CURIE). The compiler emits this as the function name in the YARRRML function block.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FunctionCallConfiguration']} })
+    parameter_predicate: str = Field(default=..., description="""FnO parameter predicate IRI for binding the input value. Emitted as the parameter name in the YARRRML function block.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FunctionCallConfiguration']} })
+    output_datatype: Optional[str] = Field(default=None, description="""Optional XSD datatype IRI for the function's return value. If set, emitted as the datatype on the function block output.""", json_schema_extra = { "linkml_meta": {'domain_of': ['FunctionCallConfiguration']} })
 
 
 class Offset(ConfiguredBaseModel):
@@ -698,6 +710,7 @@ EnumDerivation.model_rebuild()
 PermissibleValueDerivation.model_rebuild()
 PrefixDerivation.model_rebuild()
 UnitConversionConfiguration.model_rebuild()
+FunctionCallConfiguration.model_rebuild()
 Offset.model_rebuild()
 StringificationConfiguration.model_rebuild()
 Inverse.model_rebuild()

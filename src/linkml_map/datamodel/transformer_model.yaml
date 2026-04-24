@@ -340,6 +340,12 @@ classes:
         range: string
       unit_conversion:
         range: UnitConversionConfiguration
+      function_call:
+        description: >-
+          Generic FnO function to apply to this slot's value. The compiler emits
+          a YARRRML function block referencing function_id with the slot's source
+          reference bound to parameter_predicate. Supersedes unit_conversion.
+        range: FunctionCallConfiguration
       inverse_of:
         range: Inverse
         description: >-
@@ -464,6 +470,31 @@ classes:
           numeric type instead of raising an error. This is an explicit opt-in
           for columns that contain non-numeric coded values (e.g. 'A', 'M')
           mixed with numeric data.
+
+  FunctionCallConfiguration:
+    description: >-
+      Configuration for applying an FnO function to a slot's value during
+      YARRRML compilation. The compiler emits a YARRRML function block with
+      the given function IRI and parameter binding. Engine-agnostic — works
+      with morph-kgc (Python) and RMLMapper (Java).
+    attributes:
+      function_id:
+        description: >-
+          FnO function IRI (full URI or CURIE). The compiler emits this as
+          the function name in the YARRRML function block.
+        range: string
+        required: true
+      parameter_predicate:
+        description: >-
+          FnO parameter predicate IRI for binding the input value. Emitted
+          as the parameter name in the YARRRML function block.
+        range: string
+        required: true
+      output_datatype:
+        description: >-
+          Optional XSD datatype IRI for the function's return value. If set,
+          emitted as the datatype on the function block output.
+        range: string
 
   Offset:
     description: >-
