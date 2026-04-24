@@ -48,6 +48,22 @@ _COMPOSITE_SLOT_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
 
 _VALID_FORMATS = {"csv", "json", "xml"}
 
+_STRING_TYPES = {"xsd:string", "xsd:anyURI", "xsd:uriorcurie"}
+
+
+def _resolve_xsd_datatype(slot_name: str, target_view: SchemaView) -> str | None:
+    """Return the XSD datatype CURIE for a target slot, or None for string/class ranges."""
+    slot = target_view.get_slot(slot_name)
+    if slot is None or not slot.range:
+        return None
+    type_def = target_view.get_type(slot.range)
+    if type_def is None or not type_def.uri:
+        return None
+    uri = str(type_def.uri)
+    if uri in _STRING_TYPES:
+        return None
+    return uri
+
 
 @dataclass
 class YarrrmlCompiler(Compiler):
@@ -302,6 +318,8 @@ class YarrrmlCompiler(Compiler):
 
                 po: dict[str, Any] = {"predicate": predicate, "reference": reference}
 
+                xsd_type = _resolve_xsd_datatype(slot_deriv.name, target_view)
+
                 if slot_deriv.unit_conversion is not None:
                     uc = slot_deriv.unit_conversion
                     src_unit = uc.source_unit or ""
@@ -323,8 +341,8 @@ class YarrrmlCompiler(Compiler):
                                 ],
                             },
                         }
-                        if slot_deriv.range is not None:
-                            po["function"]["datatype"] = f"xsd:{slot_deriv.range}"
+                        if xsd_type is not None:
+                            po["function"]["datatype"] = xsd_type
                     except ValueError:
                         sys.stderr.write(
                             f"[YarrrmlCompiler] WARNING: no conversion function "
@@ -332,8 +350,8 @@ class YarrrmlCompiler(Compiler):
                             f"emitting plain reference\n"
                         )
 
-                if slot_deriv.range is not None and "function" not in po:
-                    po["datatype"] = f"xsd:{slot_deriv.range}"
+                if xsd_type is not None and "function" not in po:
+                    po["datatype"] = xsd_type
 
                 predicateobjects.append(po)
 
