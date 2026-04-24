@@ -513,15 +513,10 @@ def test_unknown_unit_pair_emits_plain_reference(
             ),
         },
     )
-    doc = yaml.safe_load(compiler_csv.compile(spec).serialization)
-    # Navigate to the speed po entry in the Track mapping
-    track_pos = doc["mappings"]["Track"]["po"]
-    # Find the speed po entry — it should have no "function" key
-    speed_entries = [
-        entry for entry in track_pos
-        if isinstance(entry, dict) and "o" in entry
-        and isinstance(entry["o"], dict) and "function" in entry["o"]
-    ]
-    assert len(speed_entries) == 0, (
-        f"Expected no function block for unknown unit pair, got: {speed_entries}"
+    serialization = compiler_csv.compile(spec).serialization
+    assert "function:" not in serialization, (
+        "Expected no function block for unknown unit pair"
+    )
+    assert "$(speed_knots)" in serialization, (
+        "Plain reference to source column must still be emitted"
     )
